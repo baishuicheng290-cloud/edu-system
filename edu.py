@@ -228,42 +228,92 @@ def get_real_vlm_analysis(image_bytes, history_profile_text, subject="数学", q
         }
 
 def extract_questions_from_page(img_b64, subject):
-    """提取页面上的所有题目为 JSON 数组"""
+    """提取页面上的所有题目为 JSON 数组（支持自动翻页级联提取）"""
     system_prompt = f"""
     您是一个专业的教育数据结构化提取引擎。当前提取科目：【{subject}】。
     请识别这张书页截图中的所有题目。这张纸上可能包含20道甚至更多的题目。
-    【核心警告】：大模型在处理长列表时极易产生“惰性”中途停止。请你务必逐行扫描全图，**穷尽提取每一道题，绝对不可遗漏、不可中途放弃！**直到页面最底部。
-    请先在全局视角下数一数总共有多少题，然后再开始逐一提取。
+    为了防止您一次性输出太长导致崩溃，您可以每次最多提取 10-15 道题。
+    如果您发现图片的最底部还有题目未被提取，请务必在 JSON 的末尾设置 "has_more": true。
+    如果所有题目都已提取完毕，请设置 "has_more": false。
     忽略页眉页脚、非题目的讲解正文。
     ###强制要求：你必须且只能以严格合法的 JSON 纯数据格式响应。
     结构范例: 
     {{
-       "total_count": 25,
+       "has_more": true,
        "questions": [
            {{ "q_num": 1, "content": "题干内容..." }},
            {{ "q_num": 2, "content": "第二题的内容..." }}
        ]
     }}
     """
+    
     url = f"{API_ENDPOINT}?key={YOUR_API_KEY}"
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"parts": [{"text": "请务必提取出页面上的*所有*题目，不要遗漏："}, {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}]}],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-    }
-    try:
-        response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
-        resp_json = response.json()
-        if 'candidates' in resp_json:
-            txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
-            if txt.startswith('```json'): txt = txt[7:]
-            elif txt.startswith('```'): txt = txt[3:]
-            if txt.endswith('```'): txt = txt[:-3]
-            parsed = json.loads(txt.strip())
-            return parsed.get("questions", []) if isinstance(parsed, dict) else parsed
-    except Exception as e:
-        print(f"Extraction error: {e}")
-    return []
+    
+    contents_history = [
+        {
+            "role": "user",
+            "parts": [
+                {"text": "请提取页面上的前 10-15 道题目，如果图片底部还有题目没提取，请务必设置 has_more 为 true："}, 
+                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
+            ]
+        }
+    ]
+    
+    all_extracted_questions = []
+    has_more = True
+    iteration = 0
+    max_iterations = 3
+    
+    while has_more and iteration < max_iterations:
+        payload = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": contents_history,
+            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+        }
+        
+        try:
+            response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
+            resp_json = response.json()
+            
+            if 'candidates' in resp_json:
+                txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
+                if txt.startswith('```json'): txt = txt[7:]
+                elif txt.startswith('```'): txt = txt[3:]
+                if txt.endswith('```'): txt = txt[:-3]
+                
+                parsed = json.loads(txt.strip())
+                if isinstance(parsed, dict):
+                    batch_questions = parsed.get("questions", [])
+                    all_extracted_questions.extend(batch_questions)
+                    has_more = parsed.get("has_more", False)
+                else:
+                    # 如果不是字典结构，说明模型格式乱了，停止循环
+                    if isinstance(parsed, list):
+                        all_extracted_questions.extend(parsed)
+                    has_more = False
+                
+                if has_more:
+                    # 将大模型的输出加入历史记录
+                    contents_history.append({
+                        "role": "model",
+                        "parts": [{"text": txt.strip()}]
+                    })
+                    # 追加用户的追问
+                    contents_history.append({
+                        "role": "user",
+                        "parts": [{"text": "非常好，请从上一道题的下一题开始，继续提取剩下的题目。请保持一模一样的 JSON 格式。"}]
+                    })
+            else:
+                print(f"API Error in extraction iteration {iteration}: {resp_json}")
+                break
+                
+        except Exception as e:
+            print(f"Extraction error at iteration {iteration}: {e}")
+            break
+            
+        iteration += 1
+        
+    return all_extracted_questions
 
 # =========================
 # 3. 前端交互大厅：打造展示炫酷视觉
