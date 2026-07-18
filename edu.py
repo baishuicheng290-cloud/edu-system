@@ -276,10 +276,18 @@ def extract_questions_from_page(img_b64, subject):
             resp_json = response.json()
             
             if 'candidates' in resp_json:
+                import re
                 txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                if txt.startswith('```json'): txt = txt[7:]
-                elif txt.startswith('```'): txt = txt[3:]
-                if txt.endswith('```'): txt = txt[:-3]
+                # 兼容大模型可能的废话，使用正则提取 JSON 块
+                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', txt)
+                if json_match:
+                    txt = json_match.group(1)
+                else:
+                    # 尝试直接解析（如果没有代码块包裹）
+                    start_idx = txt.find('{')
+                    end_idx = txt.rfind('}')
+                    if start_idx != -1 and end_idx != -1:
+                        txt = txt[start_idx:end_idx+1]
                 
                 parsed = json.loads(txt.strip())
                 if isinstance(parsed, dict):
