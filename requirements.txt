@@ -1,0 +1,7 @@
+streamlit
+pandas
+PyMuPDF
+streamlit-drawable-canvas
+requests
+pillow
+numpy
