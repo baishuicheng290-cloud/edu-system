@@ -312,11 +312,14 @@ def extract_questions_from_page(img_b64, subject):
                         "parts": [{"text": "非常好，请从上一道题的下一题开始，继续提取剩下的题目。请保持一模一样的 JSON 格式。"}]
                     })
             else:
-                print(f"API Error in extraction iteration {iteration}: {resp_json}")
+                err_msg = f"API Error in extraction iteration {iteration}: {resp_json}"
+                print(err_msg)
+                st.toast(f"提取第 {iteration+1} 批次时出错: {resp_json.get('error', {}).get('message', '未知错误')}")
                 break
                 
         except Exception as e:
             print(f"Extraction error at iteration {iteration}: {e}")
+            st.toast(f"提取第 {iteration+1} 批次时发生网络异常")
             break
             
         iteration += 1
