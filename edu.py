@@ -231,19 +231,24 @@ def extract_questions_from_page(img_b64, subject):
     """提取页面上的所有题目为 JSON 数组"""
     system_prompt = f"""
     您是一个专业的教育数据结构化提取引擎。当前提取科目：【{subject}】。
-    请识别这张书页截图中的所有题目。忽略页眉页脚、非题目的讲解正文。
-    ###强制要求：你必须且只能以严格合法的 JSON 纯数据格式响应。返回一个 JSON 数组(List)，其中每个元素是一个对象。
-    请确保所有的换行符(\\n)和引号都被正确转义，绝不可破坏 JSON 结构！
+    请识别这张书页截图中的所有题目。这张纸上可能包含20道甚至更多的题目。
+    【核心警告】：大模型在处理长列表时极易产生“惰性”中途停止。请你务必逐行扫描全图，**穷尽提取每一道题，绝对不可遗漏、不可中途放弃！**直到页面最底部。
+    请先在全局视角下数一数总共有多少题，然后再开始逐一提取。
+    忽略页眉页脚、非题目的讲解正文。
+    ###强制要求：你必须且只能以严格合法的 JSON 纯数据格式响应。
     结构范例: 
-    [
-       {{ "q_num": 1, "content": "题干内容..." }},
-       {{ "q_num": 2, "content": "第二题的内容..." }}
-    ]
+    {{
+       "total_count": 25,
+       "questions": [
+           {{ "q_num": 1, "content": "题干内容..." }},
+           {{ "q_num": 2, "content": "第二题的内容..." }}
+       ]
+    }}
     """
     url = f"{API_ENDPOINT}?key={YOUR_API_KEY}"
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"parts": [{"text": "请提取页面上的所有题目："}, {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}]}],
+        "contents": [{"parts": [{"text": "请务必提取出页面上的*所有*题目，不要遗漏："}, {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
     }
     try:
@@ -254,7 +259,8 @@ def extract_questions_from_page(img_b64, subject):
             if txt.startswith('```json'): txt = txt[7:]
             elif txt.startswith('```'): txt = txt[3:]
             if txt.endswith('```'): txt = txt[:-3]
-            return json.loads(txt.strip())
+            parsed = json.loads(txt.strip())
+            return parsed.get("questions", []) if isinstance(parsed, dict) else parsed
     except Exception as e:
         print(f"Extraction error: {e}")
     return []
