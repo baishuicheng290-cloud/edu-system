@@ -224,7 +224,7 @@ def get_real_vlm_analysis(image_bytes, history_profile_text, subject="数学", q
                "weak_knowledge_points": ["网络请求受阻"],
                "root_cause": "API调用失败"
            },
-           "generated_response": "抱歉，真实的大模型接口连接失败了，请检查网络或 API Key。"
+           "generated_response": f"抱歉，真实的大模型接口连接失败了，请检查网络或 API Key。详细报错信息：{str(e)}"
         }
 
 def extract_questions_from_page(img_b64, subject):
