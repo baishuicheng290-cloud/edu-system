@@ -265,6 +265,11 @@ def extract_questions_from_page(img_b64, subject):
     max_iterations = 3
     
     while has_more and iteration < max_iterations:
+        # 为了防止触发 Google 免费版每分钟 15 次的频率限制 (15 RPM)
+        # 每次请求前强行等待 4-5 秒
+        import time
+        time.sleep(4.5)
+        
         payload = {
             "systemInstruction": {"parts": [{"text": system_prompt}]},
             "contents": contents_history,
