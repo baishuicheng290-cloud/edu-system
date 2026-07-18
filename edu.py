@@ -113,7 +113,7 @@ try:
 except:
     YOUR_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
-API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 
 def get_real_vlm_analysis(image_bytes, history_profile_text, subject="数学", question_context=None):
