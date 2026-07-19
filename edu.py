@@ -228,108 +228,55 @@ def get_real_vlm_analysis(image_bytes, history_profile_text, subject="数学", q
         }
 
 def extract_questions_from_page(img_b64, subject):
-    """提取页面上的所有题目为 JSON 数组（支持自动翻页级联提取）"""
+    """提取页面上的所有题目为 JSON 数组（单次调用，省额度）"""
     system_prompt = f"""
     您是一个专业的教育数据结构化提取引擎。当前提取科目：【{subject}】。
-    请识别这张书页截图中的所有题目。这张纸上可能包含20道甚至更多的题目。
-    为了防止您一次性输出太长导致崩溃，您可以每次最多提取 10-15 道题。
-    如果您发现图片的最底部还有题目未被提取，请务必在 JSON 的末尾设置 "has_more": true。
-    如果所有题目都已提取完毕，请设置 "has_more": false。
+    请识别这张书页截图中的【全部】题目，从第一题到最后一题，一个不漏。
+    【绝对禁止】中途停止、偷懒、省略！您必须从页面顶部扫描到页面底部，输出完整的题目列表。
+    即使页面上有 30 道题，您也必须全部输出，不可以只输出前几道就停下来。
     忽略页眉页脚、非题目的讲解正文。
-    ###强制要求：你必须且只能以严格合法的 JSON 纯数据格式响应。
+    ###强制要求：你必须且只能以严格合法的 JSON 纯数据格式响应。返回一个 JSON 数组(List)。
+    请确保所有的换行符(\\n)和引号都被正确转义，绝不可破坏 JSON 结构！
     结构范例: 
-    {{
-       "has_more": true,
-       "questions": [
-           {{ "q_num": 1, "content": "题干内容..." }},
-           {{ "q_num": 2, "content": "第二题的内容..." }}
-       ]
-    }}
-    """
-    
-    url = f"{API_ENDPOINT}?key={YOUR_API_KEY}"
-    
-    contents_history = [
-        {
-            "role": "user",
-            "parts": [
-                {"text": "请提取页面上的前 10-15 道题目，如果图片底部还有题目没提取，请务必设置 has_more 为 true："}, 
-                {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}
-            ]
-        }
+    [
+       {{ "q_num": 1, "content": "题干内容..." }},
+       {{ "q_num": 2, "content": "第二题的内容..." }}
     ]
-    
-    all_extracted_questions = []
-    has_more = True
-    iteration = 0
-    max_iterations = 3
-    
-    while has_more and iteration < max_iterations:
-        # 为了防止触发 Google 免费版每分钟 15 次的频率限制 (15 RPM)
-        # 每次请求前强行等待 4-5 秒
-        import time
-        time.sleep(4.5)
-        
-        payload = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": contents_history,
-            "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
-        }
-        
-        try:
-            response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=60)
-            resp_json = response.json()
-            
-            if 'candidates' in resp_json:
-                import re
-                txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                # 兼容大模型可能的废话，使用正则提取 JSON 块
-                json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', txt)
-                if json_match:
-                    txt = json_match.group(1)
-                else:
-                    # 尝试直接解析（如果没有代码块包裹）
-                    start_idx = txt.find('{')
-                    end_idx = txt.rfind('}')
-                    if start_idx != -1 and end_idx != -1:
-                        txt = txt[start_idx:end_idx+1]
-                
-                parsed = json.loads(txt.strip())
-                if isinstance(parsed, dict):
-                    batch_questions = parsed.get("questions", [])
-                    all_extracted_questions.extend(batch_questions)
-                    has_more = parsed.get("has_more", False)
-                else:
-                    # 如果不是字典结构，说明模型格式乱了，停止循环
-                    if isinstance(parsed, list):
-                        all_extracted_questions.extend(parsed)
-                    has_more = False
-                
-                if has_more:
-                    # 将大模型的输出加入历史记录
-                    contents_history.append({
-                        "role": "model",
-                        "parts": [{"text": txt.strip()}]
-                    })
-                    # 追加用户的追问
-                    contents_history.append({
-                        "role": "user",
-                        "parts": [{"text": "非常好，请从上一道题的下一题开始，继续提取剩下的题目。请保持一模一样的 JSON 格式。"}]
-                    })
+    """
+    url = f"{API_ENDPOINT}?key={YOUR_API_KEY}"
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"parts": [{"text": "请提取这一页上的【全部】题目，从第一题到最后一题，一个不漏："}, {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}]}],
+        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+    }
+    try:
+        response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=90)
+        resp_json = response.json()
+        if 'candidates' in resp_json:
+            import re
+            txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', txt)
+            if json_match:
+                txt = json_match.group(1)
             else:
-                err_msg = f"API Error in extraction iteration {iteration}: {resp_json}"
-                print(err_msg)
-                st.toast(f"提取第 {iteration+1} 批次时出错: {resp_json.get('error', {}).get('message', '未知错误')}")
-                break
-                
-        except Exception as e:
-            print(f"Extraction error at iteration {iteration}: {e}")
-            st.toast(f"提取第 {iteration+1} 批次时发生网络异常")
-            break
-            
-        iteration += 1
-        
-    return all_extracted_questions
+                # 尝试找到 JSON 数组或对象
+                arr_start = txt.find('[')
+                obj_start = txt.find('{')
+                if arr_start != -1 and (obj_start == -1 or arr_start < obj_start):
+                    txt = txt[arr_start:txt.rfind(']')+1]
+                elif obj_start != -1:
+                    txt = txt[obj_start:txt.rfind('}')+1]
+            parsed = json.loads(txt.strip())
+            if isinstance(parsed, list):
+                return parsed
+            elif isinstance(parsed, dict):
+                return parsed.get("questions", [])
+        else:
+            st.toast(f"提取出错: {resp_json.get('error', {}).get('message', '未知错误')}")
+    except Exception as e:
+        print(f"Extraction error: {e}")
+        st.toast(f"提取时发生异常: {str(e)[:100]}")
+    return []
 
 # =========================
 # 3. 前端交互大厅：打造展示炫酷视觉
