@@ -771,6 +771,24 @@ else:
                         start_page, end_page = page_range
                         num_pages_to_extract = end_page - start_page + 1
                         
+                        # 存入哪本图书？
+                        conn_check = sqlite3.connect('xiewo_student_archive.db')
+                        existing_books = pd.read_sql_query(
+                            f"SELECT DISTINCT source_pdf FROM question_bank WHERE student_id='{student_id_val}' AND subject='{global_subject}'", 
+                            conn_check
+                        )['source_pdf'].tolist()
+                        conn_check.close()
+                        
+                        if existing_books:
+                            save_mode = st.radio("存入方式", ["📕 新建图书", "📂 存入已有图书"], horizontal=True, key="save_mode_radio")
+                        else:
+                            save_mode = "📕 新建图书"
+                        
+                        if save_mode == "📕 新建图书":
+                            target_book_name = st.text_input("图书名称", value=uploaded_pdf.name.replace('.pdf', ''), key="new_book_name")
+                        else:
+                            target_book_name = st.selectbox("选择已有图书", existing_books, key="existing_book_select")
+                        
                         if st.button(f"提取第 {start_page}-{end_page} 页（共 {num_pages_to_extract} 页，消耗 {num_pages_to_extract} 次额度）", type="primary", use_container_width=True):
                             progress_text = "AI 正在逐页提取题目，请耐心等待..."
                             my_bar = st.progress(0, text=progress_text)
@@ -793,7 +811,7 @@ else:
                                         qid = str(uuid.uuid4())[:8]
                                         q_text = str(q.get("content", q))
                                         c.execute("INSERT INTO question_bank (student_id, subject, source_pdf, page_num, question_text, question_id) VALUES (?, ?, ?, ?, ?, ?)",
-                                                  (student_id_val, global_subject, uploaded_pdf.name, i+1, q_text, qid))
+                                                  (student_id_val, global_subject, target_book_name, i+1, q_text, qid))
                                     conn.commit()
                             conn.close()
                             my_bar.progress(1.0, text=f"🎉 提取完成！共提取 {extracted_count} 道新题目。")
