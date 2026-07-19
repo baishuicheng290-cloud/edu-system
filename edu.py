@@ -756,16 +756,31 @@ else:
                         total_pages = len(doc)
                         st.info(f"成功加载 PDF，共 {total_pages} 页。")
                         
-                        if st.button("提取全本题目", type="primary", use_container_width=True):
-                            progress_text = "AI 正在逐页提取全本题目，请耐心等待..."
+                        # 页码范围选择器
+                        if total_pages == 1:
+                            page_range = (1, 1)
+                            st.caption("本 PDF 仅 1 页。")
+                        else:
+                            page_range = st.slider(
+                                "选择提取页码范围",
+                                min_value=1, max_value=total_pages,
+                                value=(1, total_pages),
+                                key="page_range_slider"
+                            )
+                        
+                        start_page, end_page = page_range
+                        num_pages_to_extract = end_page - start_page + 1
+                        
+                        if st.button(f"提取第 {start_page}-{end_page} 页（共 {num_pages_to_extract} 页，消耗 {num_pages_to_extract} 次额度）", type="primary", use_container_width=True):
+                            progress_text = "AI 正在逐页提取题目，请耐心等待..."
                             my_bar = st.progress(0, text=progress_text)
                             
                             conn = sqlite3.connect('xiewo_student_archive.db')
                             c = conn.cursor()
                             
                             extracted_count = 0
-                            for i in range(total_pages):
-                                my_bar.progress((i) / total_pages, text=f"正在提取第 {i+1}/{total_pages} 页...")
+                            for idx, i in enumerate(range(start_page - 1, end_page)):
+                                my_bar.progress(idx / num_pages_to_extract, text=f"正在提取第 {i+1}/{total_pages} 页...")
                                 page = doc.load_page(i)
                                 pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
                                 img_data = pix.tobytes("jpeg")
