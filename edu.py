@@ -247,14 +247,25 @@ def extract_questions_from_page(img_b64, subject):
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"parts": [{"text": "请提取这一页上的【全部】题目，从第一题到最后一题，一个不漏："}, {"inlineData": {"mimeType": "image/jpeg", "data": img_b64}}]}],
-        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+        "generationConfig": {
+            "temperature": 0.1, 
+            "responseMimeType": "application/json",
+            "maxOutputTokens": 65536
+        }
     }
     try:
-        response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=90)
+        response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=120)
         resp_json = response.json()
         if 'candidates' in resp_json:
+            candidate = resp_json['candidates'][0]
+            finish_reason = candidate.get('finishReason', '')
+            
+            # 检测是否因为输出过长被截断
+            if finish_reason == 'MAX_TOKENS':
+                st.toast("⚠️ 该页题目过多，输出被截断，部分题目可能丢失")
+            
             import re
-            txt = resp_json['candidates'][0]['content']['parts'][0]['text'].strip()
+            txt = candidate['content']['parts'][0]['text'].strip()
             json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', txt)
             if json_match:
                 txt = json_match.group(1)
@@ -268,11 +279,17 @@ def extract_questions_from_page(img_b64, subject):
                     txt = txt[obj_start:txt.rfind('}')+1]
             parsed = json.loads(txt.strip())
             if isinstance(parsed, list):
+                st.toast(f"本页提取到 {len(parsed)} 道题目")
                 return parsed
             elif isinstance(parsed, dict):
-                return parsed.get("questions", [])
+                questions = parsed.get("questions", [])
+                st.toast(f"本页提取到 {len(questions)} 道题目")
+                return questions
         else:
             st.toast(f"提取出错: {resp_json.get('error', {}).get('message', '未知错误')}")
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+        st.toast(f"⚠️ 该页 AI 返回的数据格式损坏，可能是输出被截断")
     except Exception as e:
         print(f"Extraction error: {e}")
         st.toast(f"提取时发生异常: {str(e)[:100]}")
